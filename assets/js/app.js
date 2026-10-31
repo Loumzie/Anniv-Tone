@@ -2,18 +2,105 @@
   'use strict';
 
   /* ===== Réglages ===== */
-  var UNLOCK = new Date('2026-11-30T00:00:00');   // ouverture de l'espace streamer
+  // Connexion à Supabase : renseignée dans assets/js/config.js (window.ANNIV_CONFIG).
+  // Sans configuration, la page fonctionne en mode démo (localStorage, rien n'est partagé).
+  var CFG = window.ANNIV_CONFIG || {};
+  var SB_URL = String(CFG.supabaseUrl || '').replace(/\/+$/, '');
+  var SB_KEY = String(CFG.publishableKey || '');
+  var REMOTE = !!(SB_URL && SB_KEY);
+  var LOGIN_DOMAIN = CFG.loginDomain || 'anniv.fr';
+  var UNLOCK = new Date('2026-11-30T00:00:00+01:00');   // ouverture du résumé (minuit, heure de Paris)
   var KEY = 'anniv-fiches-v1';
 
+  /* ===== Connexion de l'équipe (Supabase Auth) ===== */
+  var SKEY = 'anniv-session-v1';
+  var SESSION = null;   // { access, refresh, exp, role }
+  try{ var saved = JSON.parse(sessionStorage.getItem(SKEY) || 'null'); if(saved && saved.refresh) SESSION = saved; }catch(e){}
+  function saveSession(){
+    try{ if(SESSION) sessionStorage.setItem(SKEY, JSON.stringify(SESSION)); else sessionStorage.removeItem(SKEY); }catch(e){}
+  }
+  async function sbAuth(grant, body){
+    var r = await fetch(SB_URL + '/auth/v1/token?grant_type=' + grant, {
+      method:'POST', headers:{ 'apikey':SB_KEY, 'Content-Type':'application/json' }, body: JSON.stringify(body)
+    });
+    var j = await r.json().catch(function(){ return {}; });
+    if(!r.ok || !j.access_token) return null;
+    return { access:j.access_token, refresh:j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000, role:null };
+  }
+  async function token(){
+    if(!SESSION) return null;
+    if(SESSION.exp - Date.now() < 60000){
+      var role = SESSION.role, s2 = null;
+      try{ s2 = await sbAuth('refresh_token', { refresh_token: SESSION.refresh }); }catch(e){}
+      if(!s2){ SESSION = null; saveSession(); return null; }
+      s2.role = role; SESSION = s2; saveSession();
+    }
+    return SESSION.access;
+  }
+  async function sbFetch(path, opts){
+    opts = opts || {};
+    var h = Object.assign({ 'apikey':SB_KEY }, opts.headers || {});
+    var t = await token();
+    if(t) h['Authorization'] = 'Bearer ' + t;
+    return fetch(SB_URL + path, Object.assign({}, opts, { headers:h }));
+  }
+  function hasRole(roles){ return !!(SESSION && roles.indexOf(SESSION.role) > -1); }
+  async function login(id, pwd){
+    var email = id.indexOf('@') > -1 ? id : id + '@' + LOGIN_DOMAIN;
+    try{
+      var s2 = await sbAuth('password', { email:email, password:pwd });
+      if(!s2) return { ok:false, msg:'Identifiant ou mot de passe incorrect.' };
+      SESSION = s2;
+      var r = await sbFetch('/rest/v1/rpc/mon_role', { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' });
+      var role = r.ok ? await r.json().catch(function(){ return null; }) : null;
+      if(role !== 'streamer' && role !== 'moderateur'){ SESSION = null; saveSession(); return { ok:false, msg:"Ce compte n'a pas accès à cet espace." }; }
+      SESSION.role = role; saveSession();
+      return { ok:true, role:role };
+    }catch(e){
+      SESSION = null; saveSession();
+      return { ok:false, msg:'Connexion impossible pour le moment. Réessaie dans un instant.' };
+    }
+  }
+  function logout(){ SESSION = null; saveSession(); REMOTE_LIST = []; }
+
   /* ===== Stockage =====
-     Ici : localStorage du navigateur (démo uniquement, rien n'est partagé entre viewers).
-     BACKEND : pour la vraie collecte, remplace saveFiche() / loadFiches() par des appels à ton backend
-     (Supabase, Firebase, un endpoint maison...). Le format d'une fiche :
-     { id, at, pseudo, game, clip, word, drawing (data URL JPEG ou null) } */
+     Avec Supabase (REMOTE) : les fiches arrivent par la fonction « submit-fiche », sont lues dans la table « fiches »
+     (le public ne voit que les fiches validées, après le 30 novembre, sans les mots ; les règles sont dans la base).
+     Sans configuration : localStorage du navigateur (démo uniquement).
+     Format d'une fiche : { id, at, status, pseudo, game, clip, clipTitle, clipThumb, word, drawing (data URL ou lien) } */
+  var REMOTE_LIST = [];
+  var PUB_COLS = 'id,pseudo,game,clip,clip_title,clip_thumb,drawing_path';
+  var STAFF_COLS = PUB_COLS + ',status,created_at,word';
+  function drawingUrl(p){ return p ? SB_URL + '/storage/v1/object/public/dessins/' + encodeURIComponent(p) : null; }
+  function fromRow(r){
+    return { id:r.id, at:r.created_at || null, status:r.status || 'approved', pseudo:r.pseudo, game:r.game || '',
+             clip:r.clip || '', clipTitle:r.clip_title || '', clipThumb:r.clip_thumb || '', word:r.word || '', drawing:drawingUrl(r.drawing_path) };
+  }
+  async function fetchRemote(staff){
+    var r = await sbFetch('/rest/v1/fiches?select=' + (staff ? STAFF_COLS : PUB_COLS) + '&order=created_at.asc&limit=1000',
+                          { headers:{ 'Accept':'application/json' } });
+    if(!r.ok) throw new Error('fiches ' + r.status);
+    return (await r.json()).map(fromRow);
+  }
+
   function loadFiches(){
+    if(REMOTE) return REMOTE_LIST;
     try{ return JSON.parse(localStorage.getItem(KEY) || '[]'); }catch(e){ return []; }
   }
+  // Renvoie true si la fiche est enregistrée, sinon { field, message } (refus argumenté du serveur) ou false.
   async function saveFiche(f){
+    if(REMOTE){
+      try{
+        var r = await fetch(SB_URL + '/functions/v1/submit-fiche', {
+          method:'POST', headers:{ 'apikey':SB_KEY, 'Content-Type':'application/json' },
+          body: JSON.stringify({ pseudo:f.pseudo, game:f.game, clip:f.clip, word:f.word, drawing:f.drawing })
+        });
+        var j = await r.json().catch(function(){ return null; });
+        if(r.ok && j && j.ok) return true;
+        if(j && j.ok === false) return { field:j.field || null, message:j.message || null };
+        return false;
+      }catch(e){ return false; }
+    }
     try{
       var all = loadFiches(); all.unshift(f);
       localStorage.setItem(KEY, JSON.stringify(all));
@@ -22,9 +109,20 @@
   }
 
   /* Modération : status = 'pending' (par défaut) | 'approved' | 'rejected'.
-     BACKEND : remplace updateStatus() par une requête sécurisée (réservée aux modérateurs)
-     et n'envoie à l'espace streamer que les fiches 'approved'. */
+     Avec Supabase : seul un compte modérateur connecté peut changer le statut (règle côté base). */
   async function updateStatus(id, st){
+    if(REMOTE){
+      try{
+        var r = await sbFetch('/rest/v1/fiches?id=eq.' + encodeURIComponent(id), {
+          method:'PATCH', headers:{ 'Content-Type':'application/json', 'Prefer':'return=representation' }, body: JSON.stringify({ status:st })
+        });
+        if(!r.ok) return false;
+        var j = await r.json();
+        if(!j.length) return false;
+        REMOTE_LIST.forEach(function(x){ if(x.id === id) x.status = st; });
+        return true;
+      }catch(e){ return false; }
+    }
     try{
       var all = loadFiches();
       all.forEach(function(x){ if(x.id === id) x.status = st; });
@@ -50,18 +148,75 @@
     $('#view-streamer').hidden = view !== 'streamer';
     if(view === 'viewer') updateResumeBtn();
     $('#view-mod').hidden = view !== 'mod';
+    $('#view-login').hidden = view !== 'login';
     window.scrollTo(0,0);
-    if(view === 'streamer') renderStreamer();
-    if(view === 'mod') renderMod();
+    var connected = REMOTE && !!SESSION;
+    $('#out1').hidden = $('#out2').hidden = !connected;
+    if(view === 'streamer') enterStreamer();
+    if(view === 'mod') enterMod();
   }
-  $('#to-streamer').addEventListener('click', function(){ viewRole = 'streamer'; show('streamer'); });
+  function setLoading(on){ $('#loading1').hidden = $('#loading2').hidden = !on; }
+  // Chargement des fiches puis affichage
+  async function enterStreamer(){
+    if(!REMOTE || !isOpen()){ renderStreamer(); return; }
+    var staff = viewRole === 'streamer';
+    if(staff && !(await token())){ openLogin('streamer'); return; }
+    $('#gate').hidden = true; $('#board').hidden = true; setLoading(true);
+    try{ REMOTE_LIST = await fetchRemote(staff); }
+    catch(e){ REMOTE_LIST = []; toast('Impossible de charger les fiches pour le moment. Réessaie dans un instant.'); }
+    setLoading(false); renderStreamer();
+  }
+  async function enterMod(){
+    if(!REMOTE){ renderMod(); return; }
+    if(!(await token())){ openLogin('mod'); return; }
+    $('#mgate').hidden = true; $('#mboard').hidden = true; setLoading(true);
+    try{ REMOTE_LIST = await fetchRemote(true); }
+    catch(e){ REMOTE_LIST = []; toast('Impossible de charger les fiches pour le moment. Réessaie dans un instant.'); }
+    setLoading(false); renderMod();
+  }
+  // Connexion
+  var loginTarget = 'streamer';
+  function openLogin(target){
+    loginTarget = target;
+    $('#login-title').textContent = target === 'mod' ? 'Espace modérateur' : 'Espace streamer';
+    $('#login-intro').textContent = 'Connecte-toi avec l\'identifiant et le mot de passe que tu as reçus.';
+    $('#login-err').textContent = ''; $('#login-pwd').value = '';
+    show('login'); $('#login-id').focus();
+  }
+  $('#login-form').addEventListener('submit', async function(e){
+    e.preventDefault();
+    var id = $('#login-id').value.trim(), pwd = $('#login-pwd').value;
+    if(!id || !pwd){ $('#login-err').textContent = 'Indique ton identifiant et ton mot de passe.'; return; }
+    var b = $('#login-go'); b.disabled = true; $('#login-err').textContent = '';
+    var r = await login(id, pwd);
+    b.disabled = false;
+    if(!r.ok){ $('#login-err').textContent = r.msg; return; }
+    $('#login-pwd').value = '';
+    if(loginTarget === 'mod'){
+      if(r.role !== 'moderateur'){ logout(); $('#login-err').textContent = "Ce compte n'a pas accès à l'espace modérateur."; return; }
+      show('mod');
+    } else { viewRole = 'streamer'; show('streamer'); }
+  });
+  $('#login-back').addEventListener('click', function(){ show('viewer'); });
+  function doLogout(){ logout(); show('viewer'); toast('Tu es déconnecté.'); }
+  $('#out1').addEventListener('click', doLogout);
+  $('#out2').addEventListener('click', doLogout);
+
+  $('#to-streamer').addEventListener('click', function(){
+    if(REMOTE && !hasRole(['streamer','moderateur'])){ openLogin('streamer'); return; }
+    viewRole = 'streamer'; show('streamer');
+  });
   $('#to-resume').addEventListener('click', function(){ viewRole = 'public'; show('streamer'); });
-  $('#to-mod').addEventListener('click', function(){ show('mod'); });
+  $('#to-mod').addEventListener('click', function(){
+    if(REMOTE && !hasRole(['moderateur'])){ openLogin('mod'); return; }
+    show('mod');
+  });
   $('#back1').addEventListener('click', function(){ show('viewer'); });
   $('#mback1').addEventListener('click', function(){ show('viewer'); });
   $('#mback2').addEventListener('click', function(){ show('viewer'); });
   $('#back2').addEventListener('click', function(){ show('viewer'); });
   // APERCU : retire ce bouton et previewing en production
+  if(REMOTE){ $('#preview').hidden = true; $('#mpreview').hidden = true; }
   $('#preview').addEventListener('click', function(){ previewing = true; updateResumeBtn(); renderStreamer(); });
   $('#mpreview').addEventListener('click', function(){ previewing = true; updateResumeBtn(); renderMod(); });
 
@@ -316,12 +471,14 @@
     }
     var needsChannel = "Ce lien ne permet pas de savoir de quelle chaîne vient le clip. Ouvre le clip sur Twitch puis copie l'adresse affichée dans la barre du navigateur : elle doit contenir le nom de la chaîne, par exemple " + EXEMPLE + ".";
     if(host === 'clips.twitch.tv'){
+      if(REMOTE && segs.length) return { ok:true, url:v };   // la chaîne est vérifiée auprès de Twitch à l'envoi
       return { ok:false, msg:needsChannel };
     }
     if(!segs.length){
       return { ok:false, msg:"Ce lien mène à la page d'accueil de Twitch, pas à un clip. Colle le lien d'un clip de la chaîne de Tone." };
     }
     if(segs[0].toLowerCase() === 'clip'){
+      if(REMOTE && segs[1]) return { ok:true, url:v };      // idem
       return { ok:false, msg:needsChannel };
     }
     var channel = segs[0].toLowerCase();
@@ -349,6 +506,19 @@
   updateResumeBtn(); setInterval(updateResumeBtn, 30000);
 
   /* ===== Envoi ===== */
+  // Dessin en JPEG ; avec le serveur, on le garde sous ~280 Ko (limite : 300 Ko).
+  function exportDrawing(){
+    if(isBlank()) return null;
+    if(!REMOTE) return cv.toDataURL('image/jpeg', .85);
+    var qs = [.85, .7, .55, .4], d, i;
+    for(i = 0; i < qs.length; i++){
+      d = cv.toDataURL('image/jpeg', qs[i]);
+      if((d.length - 23) * .75 <= 280000) return d;
+    }
+    var c2 = document.createElement('canvas'); c2.width = 560; c2.height = 364;
+    c2.getContext('2d').drawImage(cv, 0, 0, 560, 364);
+    return c2.toDataURL('image/jpeg', .6);
+  }
   var form = $('#fiche-form');
   form.addEventListener('submit', async function(e){
     e.preventDefault();
@@ -376,12 +546,18 @@
       game: gameValue,
       clip: clipCheck.url,
       word: wordHtml(),
-      drawing: isBlank() ? null : cv.toDataURL('image/jpeg', .85)
+      drawing: exportDrawing()
     };
     var btn = $('#send'); btn.disabled = true;
-    var ok = await saveFiche(f);
+    var res = await saveFiche(f);
     btn.disabled = false;
-    if(!ok){ $('#send-err').textContent = "La fiche n'a pas pu être envoyée. Réessaie dans un instant."; return; }
+    if(res !== true){
+      var spots = { pseudo:[$('#pseudo-err'), $('#pseudo')], game:[jerr, jeu], clip:[clipErr, clipIn], word:[$('#mot-err'), ed] };
+      var spot = res && res.field && spots[res.field];
+      if(res && res.message && spot){ spot[0].textContent = res.message; spot[1].focus(); }
+      else $('#send-err').textContent = (res && res.message) || "La fiche n'a pas pu être envoyée. Réessaie dans un instant.";
+      return;
+    }
     $('#done-text').textContent = 'Merci ' + pseudo + ', ta fiche est enregistrée.\nTone la découvrira le 30 novembre.\n\nChaque fiche est validée par un modérateur.';
     $('#form-zone').hidden = true; $('#done').hidden = false;
     $('#fiche').scrollIntoView({block:'start'});
@@ -397,7 +573,7 @@
 
   function countdown(){
     var diff = UNLOCK.getTime() - Date.now();
-    if(diff <= 0){ renderStreamer(); return; }
+    if(diff <= 0){ enterStreamer(); return; }
     var days = Math.floor(diff / 864e5), hours = Math.floor(diff % 864e5 / 36e5), mins = Math.floor(diff % 36e5 / 6e4);
     $('#count').textContent = days + (days > 1 ? ' jours' : ' jour');
     $('#count-sub').textContent = 'et ' + hours + ' h ' + mins + ' min avant de tout découvrir.';
@@ -410,7 +586,10 @@
     return n;
   }
   function plural(n, one, many){ return n + ' ' + (n > 1 ? many : one); }
-  function validDrawing(d){ return typeof d === 'string' && /^data:image\/(jpeg|png);base64,/.test(d); }
+  function validDrawing(d){
+    return typeof d === 'string' && (/^data:image\/(jpeg|png);base64,/.test(d) ||
+      (REMOTE && d.indexOf(SB_URL + '/storage/v1/object/public/dessins/') === 0));
+  }
 
   // Lien de clip Twitch -> { url, slug } ou null
   function clipInfo(raw){
@@ -421,16 +600,17 @@
       return { url:u.href, slug: segs.length ? segs[segs.length - 1] : u.hostname };
     }catch(e){ return null; }
   }
-  // BACKEND : miniature = champ optionnel f.clipThumb, à renseigner côté serveur (API Twitch, "Get Clips" -> thumbnail_url)
+  // Miniature : champ f.clipThumb, renseigné par la fonction serveur (API Twitch, « Get Clips » -> thumbnail_url)
   function thumbOk(t){
     try{
       var u = new URL(t); var h = u.hostname.toLowerCase();
       return u.protocol === 'https:' && (/(^|\.)twitch\.tv$/.test(h) || /(^|\.)jtvnw\.net$/.test(h) || /(^|\.)twitchcdn\.net$/.test(h));
     }catch(e){ return false; }
   }
-  function clipTile(info, thumb){
+  function clipTile(info, thumb, title){
+    var label = title || info.slug;
     var a = el('a','clip'); a.href = info.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    a.setAttribute('aria-label', 'Ouvrir le clip ' + info.slug + ' sur Twitch');
+    a.setAttribute('aria-label', 'Ouvrir le clip ' + label + ' sur Twitch');
     if(thumb && thumbOk(thumb)){
       var img = document.createElement('img'); img.src = thumb; img.alt = ''; img.loading = 'lazy';
       img.addEventListener('error', function(){ img.remove(); });   // sans miniature : on garde le fond de remplacement
@@ -438,9 +618,10 @@
     }
     var play = el('span','play'); play.innerHTML = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M6 3.5v13l11-6.5z" fill="#fff"/></svg>';
     a.appendChild(play);
-    a.appendChild(el('span','slug', info.slug));
+    a.appendChild(el('span','slug', label));
     return a;
   }
+
 
   var curTab = 'fiches', LIST = [], DRAWS = [], timer = null;
 
@@ -548,7 +729,7 @@
     if(f.game) row(dl, 'Jeu préféré', document.createTextNode(f.game));
     if(f.clip){
       var info = clipInfo(f.clip);
-      row(dl, 'Clip préféré', info ? clipTile(info, f.clipThumb) : document.createTextNode(f.clip));
+      row(dl, 'Clip préféré', info ? clipTile(info, f.clipThumb, f.clipTitle) : document.createTextNode(f.clip));
     }
     if(f.word && mod){
       var w = el('div','word'); w.appendChild(safeFragment(f.word));
@@ -631,8 +812,9 @@
     var map = {};
     LIST.forEach(function(f){
       var info = f.clip && clipInfo(f.clip); if(!info) return;
-      var m = map[info.url] = map[info.url] || { info:info, thumb:null, who:[] };
+      var m = map[info.url] = map[info.url] || { info:info, thumb:null, title:'', who:[] };
       if(f.clipThumb && !m.thumb) m.thumb = f.clipThumb;
+      if(f.clipTitle && !m.title) m.title = f.clipTitle;
       m.who.push(f.pseudo);
     });
     return Object.keys(map).map(function(k){ return map[k]; })
@@ -645,8 +827,8 @@
     stats.forEach(function(c){
       var card = el('article','card concrete');
       if(c.who.length > 1) card.appendChild(el('span','times','×' + c.who.length));
-      card.appendChild(clipTile(c.info, c.thumb));
-      card.appendChild(el('h3', null, c.info.slug));
+      card.appendChild(clipTile(c.info, c.thumb, c.title));
+      card.appendChild(el('h3', null, c.title || c.info.slug));
       var by = el('p', null, 'Choisi par'); by.style.margin = '10px 0 0'; by.style.fontWeight = '700';
       card.appendChild(by);
       card.appendChild(whoList(c.who));
@@ -714,7 +896,7 @@
   }
 
   function renderMod(){
-    if(!previewing){ $('#mgate').hidden = false; $('#mboard').hidden = true; return; }
+    if(!REMOTE && !previewing){ $('#mgate').hidden = false; $('#mboard').hidden = true; return; }
     $('#mgate').hidden = true; $('#mboard').hidden = false;
     var r = allFiches(); MLIST = r.list; MDEMO = r.demo;
     $('#mdemo-note').hidden = !MDEMO;

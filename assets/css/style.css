@@ -200,6 +200,7 @@ textarea.input{min-height:120px;resize:vertical}
 .mbtn.ok{background:var(--blue);border-color:var(--blue);color:#fff}
 .mbtn.ok:hover{background:#1a2fd6;border-color:#1a2fd6}
 .meta{margin:2px 0 0;font-size:14px;color:var(--muted)}
+.loading{max-width:640px;margin:clamp(30px,6vw,80px) auto 0;padding:0 4px;font:400 28px/1 var(--display);text-transform:uppercase;color:#d9d9d5}
 .toast{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));z-index:60;max-width:min(92vw,460px);transform:translateX(-50%);padding:13px 20px;background:var(--ink);color:var(--paper-hi);border:2px solid var(--paper-hi);font-weight:600;opacity:0;pointer-events:none;transition:opacity .18s ease}
 .toast.show{opacity:1}
 .hero-cta{position:relative;z-index:1;display:flex;flex-wrap:wrap;align-items:center;gap:16px 20px}

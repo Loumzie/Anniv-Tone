@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="description" content="Anniversaire de Tone : remplis ta fiche (aperçu du projet)">
+<meta name="description" content="Anniversaire de Tone : remplis ta fiche">
 <title>Joyeux anniv – ta fiche</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -145,8 +145,32 @@
   </main>
 </div>
 
+<!-- ================= CONNEXION (équipe) ================= -->
+<div id="view-login" class="wrap" hidden>
+  <div class="gate concrete">
+    <h2 id="login-title">Connexion</h2>
+    <p id="login-intro"></p>
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label class="lbl" for="login-id">Identifiant</label>
+        <input class="input" id="login-id" autocomplete="username" autocapitalize="none" spellcheck="false">
+      </div>
+      <div class="field">
+        <label class="lbl" for="login-pwd">Mot de passe</label>
+        <input class="input" id="login-pwd" type="password" autocomplete="current-password">
+      </div>
+      <p class="err" id="login-err" role="alert"></p>
+      <div class="row">
+        <button type="submit" class="btn" id="login-go">Se connecter</button>
+        <button type="button" class="linklike" id="login-back">Retour au formulaire</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ================= VUE STREAMER ================= -->
 <div id="view-streamer" class="wrap" hidden>
+  <p class="loading" id="loading1" role="status" hidden>Chargement…</p>
   <div id="gate" class="gate concrete" hidden>
     <h2>Pas encore</h2>
     <p>Les fiches s'ouvrent le 30 novembre.</p>
@@ -167,6 +191,7 @@
         <button type="button" class="tab" data-tab="dessins">Les dessins</button>
         <button type="button" class="tab" data-tab="mots" hidden>Les mots</button>
         <button type="button" class="linklike snav-back" id="back2">Retour au formulaire</button>
+        <button type="button" class="linklike" id="out1" hidden>Se déconnecter</button>
       </div>
     </nav>
     <div class="s-head">
@@ -186,6 +211,7 @@
 
 <!-- ================= VUE MODERATEUR ================= -->
 <div id="view-mod" class="wrap" hidden>
+  <p class="loading" id="loading2" role="status" hidden>Chargement…</p>
   <div id="mgate" class="gate concrete" hidden>
     <h2>Accès réservé</h2>
     <p>Cet espace est réservé aux modérateurs.</p>
@@ -202,6 +228,7 @@
         <button type="button" class="tab" data-mtab="approved">Validées <span class="n" id="n-approved">0</span></button>
         <button type="button" class="tab" data-mtab="rejected">Refusées <span class="n" id="n-rejected">0</span></button>
         <button type="button" class="linklike snav-back" id="mback2">Retour au formulaire</button>
+        <button type="button" class="linklike" id="out2" hidden>Se déconnecter</button>
       </div>
     </nav>
     <div class="s-head">
@@ -226,6 +253,7 @@
   </div>
 </dialog>
 
+<script src="assets/js/config.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>
