@@ -63,7 +63,6 @@
     <section class="sheet concrete" id="fiche" aria-labelledby="fiche-titre">
       <div id="form-zone">
         <h2 id="fiche-titre">Ta fiche</h2>
-        <p class="intro">Seul le pseudo est obligatoire. Le reste, c'est comme tu veux.</p>
 
         <form id="fiche-form" novalidate>
           <div class="field">
@@ -125,6 +124,7 @@
 
           <div class="send">
             <button class="btn" type="submit" id="send">Envoyer ma fiche</button>
+            <p class="send-note">Chaque fiche est relue et validée par un modérateur : tout contenu obscène ou insultant sera supprimé.</p>
             <p class="err" id="send-err" role="alert"></p>
           </div>
         </form>
@@ -191,6 +191,7 @@
         <button type="button" class="tab" data-tab="dessins">Les dessins</button>
         <button type="button" class="tab" data-tab="mots" hidden>Les mots</button>
         <button type="button" class="linklike snav-back" id="back2">Retour au formulaire</button>
+        <button type="button" class="linklike" id="back-mod" hidden>Retour à la modération</button>
         <button type="button" class="linklike" id="out1" hidden>Se déconnecter</button>
       </div>
     </nav>
@@ -227,6 +228,7 @@
         <button type="button" class="tab" data-mtab="pending" aria-current="page">À valider <span class="n" id="n-pending">0</span></button>
         <button type="button" class="tab" data-mtab="approved">Validées <span class="n" id="n-approved">0</span></button>
         <button type="button" class="tab" data-mtab="rejected">Refusées <span class="n" id="n-rejected">0</span></button>
+        <button type="button" class="tab" id="m-resume">Résumé</button>
         <button type="button" class="linklike snav-back" id="mback2">Retour au formulaire</button>
         <button type="button" class="linklike" id="out2" hidden>Se déconnecter</button>
       </div>
@@ -246,11 +248,6 @@
 <dialog id="zoom" aria-label="Dessin en grand">
   <img id="zoom-img" alt="">
   <p class="zoom-cap" id="zoom-cap"></p>
-  <div class="zoom-bar">
-    <button type="button" class="btn" id="z-prev">Précédent</button>
-    <button type="button" class="btn" id="z-next">Suivant</button>
-    <form method="dialog"><button class="btn">Fermer</button></form>
-  </div>
 </dialog>
 
 <script src="assets/js/config.js"></script>
