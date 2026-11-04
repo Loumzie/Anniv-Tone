@@ -397,7 +397,7 @@
 
 
   /* ===== Liste des jeux (choix obligatoire dans la liste) ===== */
-  var GAMES = ["Grand Theft Auto V", "Satisfactory", "ELDEN RING", "Lycans", "Age of Empires IV", "League of Legends", "PUBG: BATTLEGROUNDS", "WARDOGS", "Marathon", "Resonance: A Plague Tale Legacy", "MECCHA CHAMELEON", "Zwift", "Big Walk", "World of Warcraft", "OneState", "Corsair Cove", "Guild Wars 2", "Shift at Midnight", "OK Boomer", "Mewgenics", "Street Fighter 6", "Peekablock", "Farming Simulator 25", "Jackbox Party Packs", "Pizza House Simulator", "Hozy", "Marbles on Stream", "S.O.N.A.R.: Submarine Operators Not Actually Ready", "Subnautica 2", "Counter-Strike", "Minecraft", "DayZ", "Keep Talking and Nobody Explodes"];
+  var GAMES = ["Grand Theft Auto V", "Satisfactory", "ELDEN RING", "Lycans", "Age of Empires IV", "League of Legends", "PUBG: BATTLEGROUNDS", "WARDOGS", "Marathon", "Resonance: A Plague Tale Legacy", "MECCHA CHAMELEON", "Zwift", "Big Walk", "World of Warcraft", "OneState", "Corsair Cove", "Guild Wars 2", "Shift at Midnight", "OK Boomer", "Mewgenics", "Street Fighter 6", "Peekablock", "Farming Simulator 25", "Jackbox Party Packs", "Pizza House Simulator", "Hozy", "Marbles on Stream", "S.O.N.A.R.: Submarine Operators Not Actually Ready", "Subnautica 2", "Counter-Strike", "Minecraft", "DayZ", "Keep Talking and Nobody Explodes", "Hades II"];
   var jeu = $('#jeu'), jlist = $('#jeu-list'), jbtn = $('#jeu-btn'), jerr = $('#jeu-err');
   var shown = [], activeIdx = -1;
   function norm(t){ return String(t).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
